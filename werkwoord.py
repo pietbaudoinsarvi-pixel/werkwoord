@@ -3,6 +3,7 @@
 v0.1 (Codex): tijden, gebiedende wijs, bijzinnen, eenmalige zodra.
 v0.2 (Claude): lidwoorden en naamvallen (regel 4), gesprekken, elkaar en zich (regel 5).
 v0.3 (Codex): acteurs, eigenaarschap en verzoekwachtrij (regel 6).
+v0.3.1 (Claude): review: vermomde vormen, luister-vervoeging, per-actor barrier, lezen van zal.
 
 Usage: python werkwoord.py program.ww
 """
@@ -102,7 +103,9 @@ class Werkwoord:
         self.actor_forms: dict[tuple[str, str], str] = {}
         self.actor_pasts: dict[tuple[str, str], str] = {}
         self.current_actor: str | None = None
-        self.mailbox: deque[tuple[str, Cell]] = deque()  # verzoeken, FIFO
+        self.mailbox: deque[tuple[str, Cell, int]] = deque()  # (afzender, doel, oorzaak), FIFO
+        self.roots = itertools.count(1)
+        self.current_root: int | None = None
         self.conversation_ids = itertools.count(1)
         self.conversation_id: int | None = None
         self.turn_log: list[tuple[int, str | None, str]] = []
@@ -152,8 +155,42 @@ class Werkwoord:
         self.actor_cells[key] = cell
         return cell
 
+    def known_infinitives(self) -> set[str]:
+        return set(IRREGULAR) | set(self.cells) | {verb for _, verb in self.actor_cells}
+
+    def reject_disguised_form(self, actor: str, conjugated: str):
+        """v0.3.1 (Claude): een infinitief of verleden tijd mag geen nieuwe stam worden."""
+        known = self.known_infinitives()
+        for verb in known:
+            for person in ('ik', 'jij', 'wij'):
+                if self.past_form(person, verb) == conjugated:
+                    raise WerkwoordFout(f'W006 {actor} {conjugated} is een verleden tijd van {verb}, '
+                                        f'geen persoonsvorm; bedoelde je {actor} {self.present(actor, verb)}?')
+        if actor == 'wij':
+            if conjugated not in known and conjugated.endswith(('den', 'ten')):
+                guess = conjugated[:-3] + 'en'
+                if guess.endswith('en') and self.past_form('wij', guess) == conjugated:
+                    raise WerkwoordFout(f'W006 wij {conjugated} is dubbelzinnig: infinitief, of verleden tijd van {guess}? '
+                                        f'Zet het werkwoord in het lexicon.')
+            return
+        if conjugated in known:
+            raise WerkwoordFout(f'W006 {actor} {conjugated} is een infinitief; '
+                                f'bedoelde je {actor} {self.present(actor, conjugated)}?')
+        # Een Nederlandse stam eindigt nooit op een dubbele medeklinker plus -en ('tellen'),
+        # en ook niet op de stam van een bekend werkwoord plus -en: dan is het een infinitief.
+        if re.search(r'([bcdfgklmnprstvz])\1en$', conjugated) or \
+                (conjugated.endswith('en') and conjugated[:-2] in {forms(v)[0] for v in known}):
+            raise WerkwoordFout(f'W006 {actor} {conjugated} lijkt een infinitief, geen {actor}-vorm')
+        if conjugated.endswith(('de', 'te')):
+            guess = conjugated[:-2] + 'en'
+            if forms(guess)[1] == conjugated:
+                raise WerkwoordFout(f'W006 {actor} {conjugated} is dubbelzinnig: persoonsvorm, of verleden tijd van {guess}? '
+                                    f'Zet het werkwoord in het lexicon.')
+
     def actor_cell(self, actor: str, conjugated: str, create=False) -> Cell:
         name = self.actor_forms.get((actor, conjugated))
+        if name is None and create:
+            self.reject_disguised_form(actor, conjugated)
         if name is None and create and actor == 'wij' and conjugated.endswith('en'):
             name = conjugated
         if name is None and create and actor in ('ik', 'jij'):
@@ -171,6 +208,9 @@ class Werkwoord:
                 possible = conjugated + ('en' if actor == 'ik' else 'en')
                 possibilities = [word for word in (possible, conjugated[:-1] + 'en')
                                  if word.endswith('en') and self.present(actor, word) == conjugated]
+            if actor == 'jij' and len(set(possibilities)) == 2 and conjugated[:-1] + 'en' in possibilities:
+                # 'jij werkt': werken of werkten? De -t is een uitgang (v0.3.1).
+                possibilities = [conjugated[:-1] + 'en']
             if len(set(possibilities)) == 1:
                 name = possibilities[0]
         if name is None:
@@ -230,20 +270,32 @@ class Werkwoord:
         target = self.target_by_command(command, recipient)
         if target.owner is None:
             raise WerkwoordFout(f'W006 {command}! heeft geen actoreigenaar')
-        self.mailbox.append((sender, target))
+        root = self.current_root if self.current_root is not None else next(self.roots)
+        self.mailbox.append((sender, target, root))
 
     def wait_for(self, actor: str):
-        # v0.3 implementeert een globale join: ook transitieve verzoeken worden afgewacht.
-        # Zo kan een actor niet na de barrier nog een ander actor-effect laten uitvoeren.
-        while self.mailbox:
-            sender, cell = self.mailbox.popleft()
+        """v0.3.1 (Claude): per-actor barrier. 'wacht totdat wij klaar zijn' wacht op alle
+        verzoeken aan WIJ, plus alles wat die verzoeken zelf weer veroorzaken (transitief).
+        Verzoeken aan anderen die niet uit WIJ's werk voortkomen, blijven in de wachtrij."""
+        mine: set[int] = set()
+        while True:
+            item = next((it for it in self.mailbox if it[1].owner == actor or it[2] in mine), None)
+            if item is None:
+                return
+            self.mailbox.remove(item)
+            sender, cell, root = item
+            if cell.owner == actor:
+                mine.add(root)
             if self.conversation_id is None:
                 self.conversation_id = next(self.conversation_ids)
             self.turn_log.append((self.conversation_id, cell.owner, f'verzoek van {sender}'))
-            with self.as_actor(cell.owner):
-                self.invoke_effect(cell)
+            previous_root, self.current_root = self.current_root, root
+            try:
+                with self.as_actor(cell.owner):
+                    self.invoke_effect(cell)
+            finally:
+                self.current_root = previous_root
             self.end_sentence()
-        # Geen verzoeken meer: alle ontvangers (inclusief 'actor') zijn klaar.
 
     def strict_condition(self, condition: str):
         if self.purist and re.search(r'\bverandert\s+is\b', condition):
@@ -296,9 +348,11 @@ class Werkwoord:
             finally:
                 cell.calculating = False
             # Een lazy forceren is een mutatie, onder de eigenaar van de cel.
-            self.ensure_can_write(cell, cell.verb or '?')
+            # v0.3.1 (Claude): lezen is vrij. Het forceren is een mutatie namens de eigenaar
+            # van de cel, niet namens de lezer.
             cell.lazy = None
-            self.assign_cell(cell, result)
+            with self.as_actor(cell.owner):
+                self.assign_cell(cell, result)
         return cell.current
 
     def assign(self, name: str, val):
@@ -602,12 +656,25 @@ class Werkwoord:
             if m := re.fullmatch(r'geef\s+den\s+(\w+)\s+.+', line):
                 cell = self.cell_of(m.group(1))
                 self.ensure_actor_can_write(actor, cell, line)
+            if m := re.fullmatch(r'(\w+)!(?:,.*)?', line):
+                owners = {cell.owner for cell in self.known_targets(m.group(1))}
+                if owners and actor not in owners:
+                    raise WerkwoordFout(f'W006 {actor} kan het effect van {", ".join(sorted(o or "de verteller" for o in owners))} '
+                                        f'niet direct uitvoeren; gebruik {actor} verzoek{dict(ik="", jij="t", wij="en")[actor]} {m.group(1)}!')
             if m := re.fullmatch(r'(ik|jij|wij)\s+\w+!', line):
                 if m.group(1) != actor:
                     raise WerkwoordFout(f'W006 {actor} kan niet rechtstreeks als {m.group(1)} handelen')
             if m := re.fullmatch(r'(ik|jij|wij)\s+verzoek(?:t|en)?\s+.+', line):
                 if m.group(1) != actor:
                     raise WerkwoordFout(f'W006 {actor} kan niet namens {m.group(1)} verzoeken')
+
+    def known_targets(self, command: str) -> list[Cell]:
+        found = []
+        if command in self.commands:
+            found.append(self.cells[self.commands[command]])
+        found.extend(cell for (actor, verb), cell in self.actor_cells.items()
+                     if self.present(actor, verb) == command or forms(verb)[0] == command)
+        return list(dict.fromkeys(found))
 
     def ensure_actor_can_write(self, actor: str, cell: Cell, statement: str):
         if cell.owner != actor:
@@ -626,8 +693,11 @@ class Werkwoord:
             self.validate_actor_effect(actor, block)
             self.actor_cell(actor, conjugated, create=True).effect = block
             return
-        if m := re.fullmatch(r'(ik|jij|wij)\s+luister,\s*zodra\s+(.+):', head):
-            actor, condition = m.groups()
+        if m := re.fullmatch(r'(ik|jij|wij)\s+(luister\w*),\s*zodra\s+(.+):', head):
+            actor, form, condition = m.groups()
+            correct = dict(ik='luister', jij='luistert', wij='luisteren')[actor]
+            if form != correct:
+                raise WerkwoordFout(f'W006 {actor} {form} is geen correcte persoonsvorm; bedoelde je {actor} {correct}?')
             self.validate_actor_effect(actor, block)
             self.listen(condition, block, actor=actor)
             return
