@@ -1,0 +1,14 @@
+// Als WIJ verandert, reageert IK in een beurt van hetzelfde gesprek,
+// maar met alleen IK's eigenaarsrechten.
+wij tellen = 0
+ik loop = 0
+
+betekent wij tellen:
+    wij tellen = wij tellen + 1
+
+ik luister, zodra wij tellen veranderd is:
+    ik loop = ik loop + 1
+
+ik verzoek tel!
+wacht totdat wij klaar zijn
+schrijven(wij tellen, ik loop) // 1 1
