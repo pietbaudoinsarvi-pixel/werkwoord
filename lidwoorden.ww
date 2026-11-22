@@ -1,0 +1,11 @@
+// Regel 4: de = identiteit, het = momentopname, des = geschiedenis, den = ontvanger.
+lopen = 5
+de rennen = lopen
+het springen = lopen
+rennen = 9
+springen = 6
+schrijven(lopen, liep, rende)
+schrijven(springen, sprong)
+schrijven(des lopens)
+geef den springen het lopen
+schrijven(des springens)

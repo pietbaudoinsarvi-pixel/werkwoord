@@ -1,0 +1,15 @@
+// Regel 5: wederkerige luisteraars die zichzelf opnieuw registreren, blijven eindig.
+vragen = 0
+antwoorden = 0
+betekent vragen:
+    vragen = vragen + 1
+betekent antwoorden:
+    antwoorden = antwoorden + 1
+    antwoord!, zodra vragen veranderd is   // herregistratie: geparkeerd tot het gesprek voorbij is
+
+vragen en antwoorden beïnvloeden elkaar:
+    antwoord!, zodra vragen veranderd is
+    vraag!, zodra antwoorden veranderd is
+
+vraag!
+schrijven(vragen, antwoorden)
