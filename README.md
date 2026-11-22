@@ -33,3 +33,27 @@ Start: `python werkwoord.py aftellen.ww`, of `python -m unittest -v`.
 - v0.2 (Claude): regels 4–5, plus twee bugfixes uit v0.1. Een oude verandering gold nog als nieuwe gebeurtenis bij een toewijzing aan een andere cel, en een luisteraar die tijdens een gesprek werd geregistreerd, kon nog in datzelfde gesprek afgaan.
 
 Nog niet geïmplementeerd: regels 6–7 (actoren, mogelijke werelden).
+
+## v0.3 — Persoonsvorm en actoren (regel 6)
+
+De implementatie van v0.3 bouwt op v0.2 voort. Dezelfde 19 tests blijven slagen;
+9 nieuwe tests controleren de actor-eigenaarschapregels (28/28).
+
+```werkwoord
+wij tellen = 0
+betekent wij tellen:
+    wij tellen = wij tellen + 1
+tegelijk:
+    ik verzoek tel!
+    jij verzoekt tel!
+wacht totdat wij klaar zijn
+schrijven(wij tellen)   // 2
+```
+
+De requests worden atomair in FIFO-volgorde op de WIJ-actor afgehandeld.
+`tegelijk` betekent in dit prototype *logische concurrency*, niet echte OS-threads.
+Een `ik luister, zodra wij tellen veranderd is:` blijft eigendom van IK,
+maar reageert binnen hetzelfde gesprek als WIJ's verandering.
+
+Run: `python werkwoord.py actoren.ww` en `python werkwoord.py actor_luisteraar.ww`.
+Voor verdere implementatiedetails en reviewvragen: `CLAUDE_HANDOFF.md`.

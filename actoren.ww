@@ -1,0 +1,13 @@
+// Regel 6: twee personen dienen gelijktijdig verzoeken in.
+// De gedeelde eigenaar WIJ verwerkt beide sequentieel en atomair.
+wij tellen = 0
+
+betekent wij tellen:
+    wij tellen = wij tellen + 1
+
+tegelijk:
+    ik verzoek tel!
+    jij verzoekt tel!
+
+wacht totdat wij klaar zijn
+schrijven(wij tellen)  // 2

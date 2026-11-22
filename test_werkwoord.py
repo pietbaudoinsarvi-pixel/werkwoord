@@ -95,3 +95,70 @@ class InterpreterTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class ActorTests(unittest.TestCase):
+    """Regel 6: persoonsvorm, eigenaarschap, verzoeken en ontvangers van zodra."""
+
+    def test_twee_actoren_hogen_gedeelde_cel_racevrij_op(self):
+        src = ('wij tellen = 0\n'
+               'betekent wij tellen:\n    wij tellen = wij tellen + 1\n'
+               'tegelijk:\n    ik verzoek tel!\n    jij verzoekt tel!\n'
+               'wacht totdat wij klaar zijn\nschrijven(wij tellen)')
+        machine = Werkwoord()
+        self.assertEqual(machine.run(src), ['2'])
+        self.assertEqual([turn[1] for turn in machine.turn_log], ['wij', 'wij'])
+
+    def test_directe_mutatie_andere_actor_is_w006(self):
+        src = ('wij tellen = 0\n'
+               'betekent ik lopen:\n    wij tellen = wij tellen + 1\n')
+        with self.assertRaisesRegex(WerkwoordFout, 'W006'):
+            Werkwoord().run(src)
+
+    def test_slechte_persoonsvorm_is_w006(self):
+        with self.assertRaisesRegex(WerkwoordFout, 'W006'):
+            Werkwoord().run('ik telt = 0')
+        with self.assertRaisesRegex(WerkwoordFout, 'W006'):
+            Werkwoord().run('wij tellen = 0\nik verzoekt tel!')
+
+    def test_actor_eigen_cel_is_toegestaan(self):
+        src = ('ik loop = 0\nbetekent ik loop:\n    ik loop = ik loop + 1\n'
+               'ik loop!\nschrijven(ik loop, ik liep)')
+        self.assertEqual(Werkwoord().run(src), ['1 0'])
+
+    def test_zodra_van_ik_op_wij_cel_draait_in_ik_beurt(self):
+        src = ('wij tellen = 0\nik loop = 0\n'
+               'betekent wij tellen:\n    wij tellen = wij tellen + 1\n'
+               'ik luister, zodra wij tellen veranderd is:\n'
+               '    ik loop = ik loop + 1\n'
+               'ik verzoek tel!\nwacht totdat wij klaar zijn\n'
+               'schrijven(wij tellen, ik loop)')
+        machine = Werkwoord()
+        self.assertEqual(machine.run(src), ['1 1'])
+        request, reaction = machine.turn_log
+        self.assertEqual((request[1], reaction[1]), ('wij', 'ik'))
+        self.assertEqual(request[0], reaction[0], 'beide beurten delen één gesprek')
+
+    def test_luisteraar_erft_geen_wij_schrijfrechten(self):
+        src = ('wij tellen = 0\n'
+               'ik luister, zodra wij tellen veranderd is:\n'
+               '    wij tellen = wij tellen + 1\n'
+               'wij tellen = 1')
+        with self.assertRaisesRegex(WerkwoordFout, 'W006'):
+            Werkwoord().run(src)
+
+    def test_verzoek_vanuit_ik_naar_wij_in_bericht(self):
+        src = ('wij tellen = 0\nik loop = 0\n'
+               'betekent ik loop:\n    ik verzoek tel!\n'
+               'betekent wij tellen:\n    wij tellen = wij tellen + 1\n'
+               'ik loop!\nwacht totdat wij klaar zijn\nschrijven(wij tellen)')
+        self.assertEqual(Werkwoord().run(src), ['1'])
+
+    def test_ambigue_ontvanger_vraagt_explicitatie(self):
+        src = ('ik tel = 0\nwij tellen = 0\n'
+               'jij verzoekt tel!')
+        with self.assertRaisesRegex(WerkwoordFout, 'W006.*mogelijke ontvangers'):
+            Werkwoord().run(src)
+
+    def test_alle_oude_tests_blijven_werken(self):
+        # Integrieteitscontrole: alles zonder personen behoudt de oude betekenis.
+        self.assertEqual(Werkwoord().run('lopen = 5\nlopen = 8\nschrijven(liep)'), ['5'])
