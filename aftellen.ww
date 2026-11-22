@@ -1,0 +1,6 @@
+tellen = 3
+betekent tellen:
+    schrijven(tellen)
+    tellen = tellen - 1
+    tel!, als tellen niet onder nul ligt
+tel!

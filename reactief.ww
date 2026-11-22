@@ -1,0 +1,6 @@
+tellen = 3
+betekent tellen:
+    tellen = tellen - 1
+schrijf!, zodra tellen verandert is
+tel!
+tel!

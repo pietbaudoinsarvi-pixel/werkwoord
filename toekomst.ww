@@ -1,0 +1,8 @@
+lopen = 5
+lopen = 8
+schrijven(liep)
+zal groeien = lopen * 2
+lopen = 12
+schrijven(groeien)
+lopen = 20
+schrijven(groeien)

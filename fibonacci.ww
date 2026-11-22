@@ -1,0 +1,10 @@
+groeien = 0
+groeien = 1
+betekent groeien:
+    schrijven(groeide)
+    groeien = groeien + groeide
+groei!
+groei!
+groei!
+groei!
+groei!
